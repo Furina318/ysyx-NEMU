@@ -169,6 +169,30 @@ char *get_func_name(vaddr_t addr){
   return "???"; // 未知函数
 }
 
+#define BHT_SIZE 1024  // 分支历史表大小（假设 1024 条目）
+typedef struct {
+  uint8_t state;  // 2-bit 状态: 00 (强不跳), 01 (弱不跳), 10 (弱跳), 11 (强跳)
+  vaddr_t target; // 预测的目标地址（仅对无条件跳转有效）
+  uint64_t taken_count;    // 跳转次数
+  uint64_t not_taken_count;// 不跳转次数
+} BHT_Entry;
+
+static BHT_Entry bht[BHT_SIZE];  // 分支历史表
+static uint64_t bht_hits = 0;    // 预测命中次数
+static uint64_t bht_misses = 0;  // 预测失误次数
+
+// 初始化 BHT
+void bht_init() {
+  for (int i = 0; i < BHT_SIZE; i++) {
+    bht[i].state = 0x1;  // 默认弱不跳
+    bht[i].target = 0;
+    bht[i].taken_count = 0;
+    bht[i].not_taken_count = 0;
+  }
+  bht_hits = 0;
+  bht_misses = 0;
+}
+
 CPU_state cpu = {};
 uint64_t g_nr_guest_inst = 0;
 static uint64_t g_timer = 0; // unit: us
@@ -205,8 +229,51 @@ static void exec_once(Decode *s, vaddr_t pc) {
   s->pc = pc;
   s->snpc = pc;
   isa_exec_once(s);
-#ifdef CONFIG_FUNC_TRACE
+  // 分支预测器逻辑
   uint32_t opcode = s->isa.inst & 0x7f;
+  // uint32_t funct3 = (s->isa.inst >> 12) & 0x7;  // funct3 用于区分条件分支类型
+  bool is_branch = (opcode == 0x63);  // 条件分支指令
+  bool is_jal = (opcode == 0x6f);     // 无条件跳转 (JAL)
+  bool is_jalr = (opcode == 0x67);    // 间接跳转 (JALR)
+
+  if (is_branch || is_jal || is_jalr) {
+    // 用 PC 低位索引 BHT
+    uint32_t bht_idx = (s->pc >> 2) % BHT_SIZE;
+    bool taken = (s->dnpc != s->snpc);  // 是否跳转
+    bool predicted_taken = (bht[bht_idx].state >= 2);  // 状态 >= 2 表示预测跳转
+
+    // 更新统计
+    if (taken) bht[bht_idx].taken_count++;
+    else bht[bht_idx].not_taken_count++;
+
+    // 检查预测是否正确
+    if (predicted_taken == taken) {
+      bht_hits++;
+    } else {
+      bht_misses++;
+    }
+
+    // 更新 2-bit 饱和计数器
+    if (taken) {
+      if (bht[bht_idx].state < 3) bht[bht_idx].state++;  // 增加倾向
+    } else {
+      if (bht[bht_idx].state > 0) bht[bht_idx].state--;  // 减少倾向
+    }
+
+    // 更新目标地址（仅对 JAL/JALR 有效）
+    if (is_jal || is_jalr) {
+      bht[bht_idx].target = s->dnpc;
+    }
+
+    // // 调试输出（可选）
+    // #ifdef CONFIG_ITRACE
+    // printf("Branch at 0x%x: %s, predicted %s, actual %s\n",
+    //        s->pc, s->logbuf, predicted_taken ? "taken" : "not taken",
+    //        taken ? "taken" : "not taken");
+    // #endif
+  }
+#ifdef CONFIG_FUNC_TRACE
+  // uint32_t opcode = s->isa.inst & 0x7f;
   vaddr_t target=s->dnpc;
   if(opcode==0x6f){ //JAL指令（函数调用）11011 11//JALR指令11001 11
     vaddr_t ret_addr=pc+4;
@@ -280,9 +347,20 @@ static void statistic() {
   if (g_timer > 0) Log("simulation frequency = " NUMBERIC_FMT " inst/s", g_nr_guest_inst * 1000000 / g_timer);
   else Log("Finish running in less than 1 us and can not calculate the simulation frequency");
 
+  puts("");
   Log("Function call statistics:");
   for (int i = 0; i < func_call_stats_size; i++) {
     Log("  %-20s: %" PRIu64 " calls", func_call_stats[i].name, func_call_stats[i].call_count);
+  }
+  // 添加分支预测器统计
+  puts("");
+  Log("Branch Predictor Statistics:");
+  Log("  Total predictions: %" PRIu64, bht_hits + bht_misses);
+  Log("  Hits: %" PRIu64, bht_hits);
+  Log("  Misses: %" PRIu64, bht_misses);
+  if (bht_hits + bht_misses > 0) {
+    double hit_rate = (double)bht_hits / (bht_hits + bht_misses) * 100;
+    Log("  Hit rate: %.2f%%", hit_rate);
   }
 }
 
@@ -298,7 +376,7 @@ void cpu_exec(uint64_t n) {
     case NEMU_END: case NEMU_ABORT: case NEMU_QUIT:
       printf("Program execution has ended. To restart the program, exit NEMU and run again.\n");
       return;
-    default: nemu_state.state = NEMU_RUNNING;iringbuf_init();
+    default: nemu_state.state = NEMU_RUNNING;iringbuf_init();bht_init();
   }
 
   uint64_t timer_start = get_time();
