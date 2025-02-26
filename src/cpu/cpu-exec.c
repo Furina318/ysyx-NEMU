@@ -97,11 +97,36 @@ typedef struct{
 static ftrace_info ftrace[MAX_FTRACE_SIZE];
 static int ftrace_size=0;//当前调用栈深度
 
+typedef struct {
+  char *name;
+  uint64_t call_count;
+} func_call_stats_t;
+
+static func_call_stats_t func_call_stats[MAX_FTRACE_SIZE];
+static int func_call_stats_size = 0;
+
 void ftrace_call(vaddr_t pc,char *name,vaddr_t back,vaddr_t dnpc){
   if(ftrace_size>=MAX_FTRACE_SIZE){
     printf("Call stack overflow!\n");
     return;
   }
+
+  // 查找或创建函数调用统计记录
+  int index = -1;
+  for (int i = 0; i < func_call_stats_size; i++) {
+    if (strcmp(func_call_stats[i].name, name) == 0) {
+      index = i;
+      break;
+    }
+  }
+  if (index == -1) {
+    index = func_call_stats_size++;
+    func_call_stats[index].name = name;
+    func_call_stats[index].call_count = 0;
+  }
+  // 增加调用次数
+  func_call_stats[index].call_count++;
+  
   // 输出调用信息
   printf("0x%x: ",pc);
   for(int i=0;i<ftrace_size;i++){
@@ -254,6 +279,11 @@ static void statistic() {
   Log("total guest instructions = " NUMBERIC_FMT, g_nr_guest_inst);
   if (g_timer > 0) Log("simulation frequency = " NUMBERIC_FMT " inst/s", g_nr_guest_inst * 1000000 / g_timer);
   else Log("Finish running in less than 1 us and can not calculate the simulation frequency");
+
+  Log("Function call statistics:");
+  for (int i = 0; i < func_call_stats_size; i++) {
+    Log("  %-20s: %" PRIu64 " calls", func_call_stats[i].name, func_call_stats[i].call_count);
+  }
 }
 
 void assert_fail_msg() {
