@@ -162,28 +162,46 @@ char *get_func_name(vaddr_t addr){
   return "???"; // 未知函数
 }
 
-#define BHT_SIZE 1024
+#define BHT_SIZE 1024       
+#define GHR_SIZE 8          // 全局历史（记录最近 8 次分支结果）
+#define BTB_SIZE 256        // 分支目标缓冲区大小
+
+// 分支历史表条目 (2-bit 饱和计数器)
 typedef struct {
-  uint8_t state;  //状态: 00 (强不跳), 01 (弱不跳), 10 (弱跳), 11 (强跳)
-  vaddr_t target; //预测的目标地址（仅对无条件跳转有效）
-  uint64_t jump_count;    //跳转次数
-  uint64_t not_jump_count;//不跳转次数
-} BHT_Entry;
+  uint8_t state;        // 2-bit 状态: 00 (强不跳), 01 (弱不跳), 10 (弱跳), 11 (强跳)
+  uint64_t jump_count; // 跳转次数
+  uint64_t not_jump_count; // 不跳转次数
+} BHT_entry;
 
-static BHT_Entry bht[BHT_SIZE];  // 分支历史表
-static uint64_t bht_hits = 0;    // 预测命中次数
-static uint64_t bht_misses = 0;  // 预测失误次数
+// 分支目标缓冲区条目
+typedef struct {
+  vaddr_t pc;           // 分支指令的 PC（用于索引和验证）
+  vaddr_t target;       // 预测的目标地址
+  bool valid;           // 条目是否有效
+} BTB_entry;
 
-// 初始化 BHT
-void bht_init() {
-  for (int i = 0; i < BHT_SIZE; i++) {
+static BHT_entry bht[BHT_SIZE];    // 分支历史表
+static BTB_entry btb[BTB_SIZE];    // 分支目标缓冲区
+static uint8_t ghr = 0;            // 全局历史（记录跳转历史）
+static uint64_t bht_hits = 0;      // 预测命中次数
+static uint64_t bht_misses = 0;    // 预测失误次数
+static uint64_t btb_hits = 0;      // BTB 目标地址命中次数
+static uint64_t btb_misses = 0;    // BTB 目标地址失误次数
+
+// 初始化预测器
+void predictor_init(){
+  for(int i = 0; i < BHT_SIZE i++){
     bht[i].state = 0x1;  // 默认弱不跳
-    bht[i].target = 0;
     bht[i].jump_count = 0;
     bht[i].not_jump_count = 0;
   }
-  bht_hits = 0;
-  bht_misses = 0;
+  for(int i = 0; i < BTB_SIZE; i++){
+    btb[i].pc = 0;
+    btb[i].target = 0;
+    btb[i].valid = false;
+  }
+  ghr = 0;
+  bht_hits = bht_misses = btb_hits = btb_misses = 0;
 }
 
 CPU_state cpu = {};
@@ -222,37 +240,49 @@ static void exec_once(Decode *s, vaddr_t pc) {
   s->pc = pc;
   s->snpc = pc;
   isa_exec_once(s);
-  //动态分支预测器逻辑
+  // 分支预测器逻辑
   uint32_t opcode = s->isa.inst & 0x7f;
-  bool is_branch = (opcode == 0x63);  // 条件分支指令
-  bool is_jal = (opcode == 0x6f);     // 无条件跳转 (JAL)
-  bool is_jalr = (opcode == 0x67);    // 间接跳转 (JALR)
+  bool is_branch = (opcode == 0x63);  //条件分支 (beq,bne等)
+  bool is_jal = (opcode == 0x6f);     //无条件跳转(jal)
+  bool is_jalr = (opcode == 0x67);    //间接跳转(jalr)
 
-  if (is_branch || is_jal || is_jalr) {
-    // 用 PC 低位索引 BHT
-    uint32_t bht_idx = (s->pc >> 2) % BHT_SIZE;
-    bool jump = (s->dnpc != s->snpc);  // 是否跳转
-    bool predicted_jump=(bht[bht_idx].state >= 2);  // 状态 >= 2 表示预测跳转
-    // 更新统计
-    if (jump) bht[bht_idx].jump_count++;
-    else bht[bht_idx].not_jump_count++;
-    // 检查预测是否正确
-    if (predicted_jump == jump) {
+  if(is_branch || is_jal || is_jalr){
+    //哈希.通过取模操作使得索引在有效范围内，防止越界
+    uint32_t bht_idx = ((s->pc >> 2)^ghr) % BHT_SIZE;//计算BHT索引，异或ghr是为了增加随机性，将pc右移是为了忽略指令的字节对齐
+    uint32_t btb_idx = (s->pc >> 2) % BTB_SIZE;//计算BTB索引
+
+    bool jump = (s->dnpc != s->snpc);  //实际是否跳转
+    bool predicted_jump = (bht[bht_idx].state >= 2);  //预测是否跳转
+    vaddr_t predicted_target = btb[btb_idx].valid && btb[btb_idx].pc == s->pc 
+                              ? btb[btb_idx].target : s->snpc;  //BTB预测的目标地址
+    //更新预测统计
+    if(predicted_jump == jump){//预测是否跳转正确
       bht_hits++;
-    } else {
+    }else{
       bht_misses++;
     }
-    // 更新饱和计数器
-    if (jump) {
-      if (bht[bht_idx].state < 3) bht[bht_idx].state++;  // 增加倾向
-    } else {
-      if (bht[bht_idx].state > 0) bht[bht_idx].state--;  // 减少倾向
+    if(jump && predicted_target == s->dnpc){//跳转条件下，地址预测正确
+      btb_hits++;
+    }else if(jump){
+      btb_misses++;
     }
-    // 更新目标地址（仅对 JAL/JALR 有效）
-    if (is_jal || is_jalr) {
-      bht[bht_idx].target = s->dnpc;
+    //更新BHT
+    if(jump){
+      if (bht[bht_idx].state < 3) bht[bht_idx].state++;//跳转条件下，若非强跳转，则增加状态
+      bht[bht_idx].jump_count++;
+    }else{
+      if(bht[bht_idx].state > 0) bht[bht_idx].state--;//非跳转条件下，若非强不跳转，则减少状态
+      bht[bht_idx].not_jump_count++;
     }
-  }
+    //更新BTB
+    if(jump){
+      btb[btb_idx].pc = s->pc;
+      btb[btb_idx].target = s->dnpc;
+      btb[btb_idx].valid = true;
+    }
+    //更新GHR
+    ghr = (ghr << 1) | (jump ? 1 : 0);//左移为新的历史记录腾出空间同时将新的分支结果记录到ghr最低位
+    ghr &= (1 << GHR_SIZE) - 1;  //截断到GHR_SIZE位。掩码（1<<GHR_SIZE）-1的二进制表示为GHR_SIZE个1
 #ifdef CONFIG_FUNC_TRACE
   // uint32_t opcode = s->isa.inst & 0x7f;
   vaddr_t target=s->dnpc;
@@ -329,15 +359,22 @@ static void statistic() {
   for (int i = 0; i < func_call_stats_size; i++) {
     Log("  %-20s: %" PRIu64 " calls", func_call_stats[i].name, func_call_stats[i].call_count);
   }
-  // 添加分支预测器统计
+
   puts("");
   Log("Branch Predictor Statistics:");
-  Log("  Total predictions: %" PRIu64, bht_hits + bht_misses);
-  Log("  Hits: %" PRIu64, bht_hits);
-  Log("  Misses: %" PRIu64, bht_misses);
-  if (bht_hits + bht_misses > 0) {
-    double hit_rate = (double)bht_hits / (bht_hits+bht_misses)*100;
-    Log("  Hit rate: %.2f%%", hit_rate);
+  Log("  Total direction predictions: %" PRIu64, bht_hits+bht_misses);
+  Log("  Direction hits: %" PRIu64, bht_hits);
+  Log("  Direction misses: %" PRIu64,bht_misses);
+  if(bht_hits+bht_misses > 0){
+    double direction_hit_rate = (double)bht_hits / (bht_hits+bht_misses)*100;
+    Log("  Direction hit rate: %.2f%%", direction_hit_rate);
+  }
+  Log("  Total target predictions: %" PRIu64, btb_hits+btb_misses);
+  Log("  Target hits: %" PRIu64, btb_hits);
+  Log("  Target misses: %" PRIu64, btb_misses);
+  if(btb_hits+btb_misses > 0){
+    double target_hit_rate = (double)btb_hits / (btb_hits+btb_misses)*100;
+    Log("  Target hit rate: %.2f%%", target_hit_rate);
   }
 }
 
@@ -353,7 +390,7 @@ void cpu_exec(uint64_t n) {
     case NEMU_END: case NEMU_ABORT: case NEMU_QUIT:
       printf("Program execution has ended. To restart the program, exit NEMU and run again.\n");
       return;
-    default: nemu_state.state = NEMU_RUNNING;iringbuf_init();bht_init();
+    default: nemu_state.state = NEMU_RUNNING;iringbuf_init();predictor_init();
   }
 
   uint64_t timer_start = get_time();
