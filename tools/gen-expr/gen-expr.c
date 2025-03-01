@@ -19,10 +19,6 @@
 #include <time.h>
 #include <assert.h>
 #include <string.h>
-// #include "/home/furina/ysyx-workbench/nemu/include/generated/autoconf.h"
-// #include <common.h>
-// #include "/home/furina/ysyx-workbench/nemu/src/monitor/sdb/sdb.h"
-// #include <sdb.h>
 
 // this should be enough
 static char buf[65536] = {};
@@ -122,11 +118,6 @@ int main(int argc, char *argv[]) {
     fputs(code_buf, fp);
     fclose(fp);
 
-    // fp=fopen("/home/furina/ysyx-workbench/nemu/expr-test","w");
-    // assert(fp!=NULL);
-    // fputs(buf,fp);
-    // fclose(fp);
-
     int ret = system("gcc /tmp/.code.c -o /tmp/.expr");
     if (ret != 0) continue;
 
@@ -136,7 +127,6 @@ int main(int argc, char *argv[]) {
     uint32_t result;
     ret = fscanf(fp, "%u", &result);
     pclose(fp);
-    // printf("my_expr:%u\n",expr(buf));
     printf("%u %s\n", result, buf);
   }
   return 0;
