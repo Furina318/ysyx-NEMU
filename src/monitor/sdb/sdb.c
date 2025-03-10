@@ -87,7 +87,8 @@ static int cmd_info(char *args){
 #endif
       WP *wp=get_wp_head();
       if(wp == NULL){
-        printf("No watchpoints set.\n");
+        // printf("No watchpoints set.\n");
+        _Log(ANSI_FG_RED "No watchpoint set\n" ANSI_NONE);
         return 0;
       }
       // _Log(ANSI_FG_YELLOW "Current watchpoints state: %s\n" ANSI_NONE, wp_state);
@@ -156,7 +157,8 @@ static int cmd_w(char *args){
 
 static int cmd_d(char *args){
   if (args==NULL || strlen(args)==0) {
-    printf("Invalid index. Please enter a valid number.\n");
+    // printf("Invalid index. Please enter a valid number.\n");
+    _Log(ANSI_FG_RED "Invalid index. Please enter a valid number.\n" ANSI_NONE);
     return 0;
   }
   int no=atoi(strtok(NULL," "));
@@ -164,7 +166,8 @@ static int cmd_d(char *args){
   while(wp!=NULL){
     if(wp->NO==no){
       free_wp(wp);
-      printf("Watchpoint NO.%d deleted.\n", no);
+      // printf("Watchpoint NO.%d deleted.\n", no);
+      _Log("Watchpoint " ANSI_FG_YELLOW "NO.%d" ANSI_NONE " deleted.\n",no);
       return 0;
     }
     wp=wp->next;
@@ -178,13 +181,6 @@ static int cmd_p(char *args) {
     return 0;
   }
   word_t result =expr(args);
-  // if(result == -1){
-  //   printf("Invalid expression\n");
-  //   return 0;
-  // }else if(result==-2){
-  //   printf("Over uint32_t\n");
-  //   return 0;
-  // }
   printf("%s = %u\n", args, result);
   return 0;
 }
@@ -202,9 +198,6 @@ static int cmd_test(){
         word_t result = expr(expression);
         // 输出第一个参数和 expr 的结果
         printf("%s\ncorrect ans:%s   my_expr:%u\n\n",expression,ans,result);
-        // assert((word_t)ans==result);
-        // if(*((word_t *)ans)==result) printf("pass\n\n");
-        // else assert(0);
     }
     fclose(file);
     return 0;
@@ -214,14 +207,6 @@ static int cmd_mtrace(char *args){
 #ifdef CONFIG_MEMORY_TRACE
   typedef uint32_t paddr_t;
   char *arg1,*arg2,*arg3,*arg4;
-  // if(args==NULL || strlen(args)<4){
-  //   printf("No info provide\n");
-  //   return 0;
-  // }
-  // if (arg1 == NULL || arg2 == NULL || arg3 == NULL || arg4 == NULL) {
-  //   printf("Invalid arguments\n");
-  //   return 0;
-  // }
   arg1=strtok(args," ");
   arg2=strtok(NULL," ");
   arg3=strtok(NULL," ");
