@@ -90,11 +90,14 @@ static int cmd_info(char *args){
         printf("No watchpoints set.\n");
         return 0;
       }
-      printf("Current watchpoints state:            %s\n",wp_state);
-      while (wp != NULL) {// 打印监视点信息
-        printf("Watchpoint NO:%-2d: Expression '%s' Last Value: 0x%08x\n",
+      // _Log(ANSI_FG_YELLOW "Current watchpoints state: %s\n" ANSI_NONE, wp_state);
+      _Log("Current watchpoints state: ");
+      _Log(ANSI_FG_RED "%s\n" ANSI_NONE, wp_state);
+      _Log(ANSI_FG_GREEN "Watchpoint NO\t Expression\t Last Value\n" ANSI_NONE);
+      while (wp != NULL) { // 打印监视点信息
+        _Log("%-2d\t\t %s\t\t 0x%08x\n" ANSI_NONE,
           wp->NO, wp->expr ? wp->expr : "N/A", wp->old_val);
-        wp=wp->next;
+        wp = wp->next;
       }
     }else printf("Invalid operation,please specify 'r' or 'w'.\n");
   }else printf("No argument provided. Please specify 'r' or 'w'.\n");
