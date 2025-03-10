@@ -125,8 +125,9 @@ static int cmd_x(char *args){//扫描内存
       return 0;
     }
   }
+  _Log(ANSI_FG_YELLOW "Addr             Hex_Value       Dec_Value\n" ANSI_NONE);
   for(int i=0;i<len;i++){
-    printf("addr->0x%x : %08x\n",addr,paddr_read(addr,4));
+    printf("0x%x :\t %08x\t %010u\n",addr,paddr_read(addr,4),paddr_read(addr,4));
     addr+=4;
   }
   return 0;
