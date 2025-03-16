@@ -7,7 +7,7 @@ NEMU(NJU Emulator) is a simple but complete full-system emulator designed for te
 
 [**目前nemu在microbench中ref规模的跑分265Marks**]
 
-![nemu_test](file:///home/furina/Pictures/Screenshots/Screenshot%20from%202025-03-16%2019-25-53.png)
+[nemu_test](file:///home/furina/Pictures/Screenshots/Screenshot%20from%202025-03-16%2019-25-53.png)
 
 To build programs run above NEMU, refer to the [AM project](https://github.com/NJU-ProjectN/abstract-machine).
 
