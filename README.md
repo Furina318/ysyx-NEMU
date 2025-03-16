@@ -1,9 +1,11 @@
 # ysyx-NEMU
 A NEMU for ysyx-PAs learning(update to PA2)
 
-【仅供交流学习使用，未经许可禁止传播！】
+【**仅供交流学习使用，未经许可禁止传播！**】
 
 NEMU(NJU Emulator) is a simple but complete full-system emulator designed for teaching purpose. Originally it supports x86, mips32, riscv64, and riscv32. **This repo only guarantees the support for riscv32.（updating)**
+[**目前nemu在microbench中ref规模的跑分情况**]
+file:///home/furina/Pictures/Screenshots/Screenshot%20from%202025-03-16%2019-25-53.png
 
 To build programs run above NEMU, refer to the [AM project](https://github.com/NJU-ProjectN/abstract-machine).
 
