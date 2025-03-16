@@ -74,6 +74,7 @@ void mtrace_filter_output(paddr_t start_addr, paddr_t end_addr, bool filter_en, 
     paddr_t addr;
     uint32_t data;
     int len;
+    puts("[mtrace_start]");
     // 逐行读取日志文件
     while(fscanf(fp, " %c 0x%x 0x%x %d",&type,&addr,&data,&len)==4) {
         if (addr < start_addr || addr > end_addr) {
@@ -82,9 +83,10 @@ void mtrace_filter_output(paddr_t start_addr, paddr_t end_addr, bool filter_en, 
         if (filter_en && data != filter_data) {
             continue; 
         }
-        printf(" %c 0x%08x 0x%08x %d\n", type, addr, data, len);
+        printf(" %c 0x%08x value: 0x%08x %d\n", type, addr, data, len);
     }
     fclose(fp);
+    puts("[mtrace_end]");
 }
 uint8_t* guest_to_host(paddr_t paddr) { return pmem + paddr - CONFIG_MBASE; }
 paddr_t host_to_guest(uint8_t *haddr) { return haddr - pmem + CONFIG_MBASE; }
@@ -129,4 +131,16 @@ void paddr_write(paddr_t addr, int len, word_t data) {
   if (likely(in_pmem(addr))) { pmem_write(addr, len, data); return; }
   IFDEF(CONFIG_DEVICE, mmio_write(addr, len, data); return);
   out_of_bound(addr);
+  // if (likely(in_pmem(addr))) {
+  //   pmem_write(addr, len, data);
+  // } 
+  // else IFDEF(CONFIG_DEVICE, {
+  //   mmio_write(addr, len, data);
+  // })
+  // else {
+  //   out_of_bound(addr);
+  //   return;
+  // }
+  // // 记录写操作到 mtrace
+  // mtrace_log('W', addr, data, len);
 }
