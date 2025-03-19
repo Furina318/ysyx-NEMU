@@ -28,8 +28,8 @@ The main features of NEMU include
 * memory
 * interrupt and exception
 * I/O and devices(输入输出设备已完成）
-  *timer, keyboard, VGA, serial, IDE, i8259 PIC
-  *port-mapped I/O and memory-mapped I/O
+  * timer, keyboard, VGA, serial, IDE, i8259 PIC
+  * port-mapped I/O and memory-mapped I/O
   
 
 
