@@ -24,7 +24,7 @@
 #include <utils.h>
 
 static int is_batch_mode = false;//批处理模式（省略c的键入）
-
+extern void print_dtrace_file();
 void init_regex();
 void init_wp_pool();
 WP *new_wp();
@@ -181,32 +181,55 @@ static int cmd_p(char *args) {
     return 0;
   }
   word_t result =expr(args);
+  // if(result == -1){
+  //   printf("Invalid expression\n");
+  //   return 0;
+  // }else if(result==-2){
+  //   printf("Over uint32_t\n");
+  //   return 0;
+  // }
   printf("%s = %u\n", args, result);
   return 0;
 }
 
 static int cmd_test(){
   FILE *file;
-    char line[256];
-    char *filename = "/home/furina/ysyx-workbench/nemu/tools/gen-expr/build/input";  // 替换为你的文件名
-    file = fopen(filename, "r");
-    assert(file!=NULL);
-    while (fgets(line, sizeof(line), file)) {// 逐行读取文件
-        line[strcspn(line, "\n")] = '\0';// 去掉行末的换行符
-        char *ans = strtok(line, " ");
-        char *expression = strtok(NULL, "");
-        word_t result = expr(expression);
-        // 输出第一个参数和 expr 的结果
-        printf("%s\ncorrect ans:%s   my_expr:%u\n\n",expression,ans,result);
-    }
-    fclose(file);
-    return 0;
+  char line[256];
+  uint32_t expr_count=0;
+  bool success=true;
+
+  char *filename = "/home/furina/ysyx-workbench/nemu/tools/gen-expr/build/input";
+  file = fopen(filename, "r");
+  assert(file!=NULL);
+  while (fgets(line, sizeof(line), file)) {// 逐行读取文件
+    line[strcspn(line, "\n")] = '\0';// 去掉行末的换行符
+    char *ans = strtok(line, " ");
+    char *expression = strtok(NULL, "");
+    word_t result = expr(expression);
+    // 输出第一个参数和 expr 的结果
+    printf("%s\ncorrect ans:%s   my_expr:%u\n\n",expression,ans,result);
+    expr_count+=1;
+    // if((word_t)ans==result) continue;
+    // else success=false;
+  }
+  if(success) _Log(ANSI_BG_GREEN "Success!" ANSI_NONE "   Total %u expr\n",expr_count);
+  else _Log(ANSI_BG_RED "Fail!" ANSI_NONE "   Total %u expr\n",expr_count);
+  fclose(file);
+  return 0;
 }
 
 static int cmd_mtrace(char *args){
 #ifdef CONFIG_MEMORY_TRACE
   typedef uint32_t paddr_t;
   char *arg1,*arg2,*arg3,*arg4;
+  // if(args==NULL || strlen(args)<4){
+  //   printf("No info provide\n");
+  //   return 0;
+  // }
+  // if (arg1 == NULL || arg2 == NULL || arg3 == NULL || arg4 == NULL) {
+  //   printf("Invalid arguments\n");
+  //   return 0;
+  // }
   arg1=strtok(args," ");
   arg2=strtok(NULL," ");
   arg3=strtok(NULL," ");
@@ -218,7 +241,21 @@ static int cmd_mtrace(char *args){
   mtrace_filter_output(start_addr,end_addr,filter_en,filter_data);
   return 0;
 #endif
-  printf("memory trace not open\n");
+  _Log(ANSI_FG_RED "memory trace not open\n" ANSI_NONE);
+  // printf("memory trace not open\n");
+  return 0;
+}
+
+static int cmd_dtrace(char *args){
+#ifdef CONFIG_DEVICE_TRACE
+  char *arg1=strtok(args," ");
+  char *arg2=strtok(NULL," ");
+  char *device_name=(arg1!=NULL) ? arg1 : NULL;
+  char *op=(arg2!=NULL) ? arg2 : NULL;
+  print_dtrace_file(device_name,op);
+  return 0;
+#endif
+  _Log(ANSI_FG_RED "device trace not open\n" ANSI_NONE);
   return 0;
 }
 
@@ -242,6 +279,7 @@ static struct {
   { "d", "Delete a watchpoint NO.n you set",cmd_d},
   { "test", "Open random-expressions-file to check expr() whether correct",cmd_test},
   { "mtrace", "(Use when nemu stop)Open mtrace log file to check memory behavior",cmd_mtrace},
+  { "dtrace", "Output the trace of device access",cmd_dtrace},
 };
 
 #define NR_CMD ARRLEN(cmd_table)

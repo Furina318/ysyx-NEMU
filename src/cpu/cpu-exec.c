@@ -31,6 +31,9 @@
 #define IRINGBUF_SIZE 16
 #define MAX_FTRACE_SIZE 1000
 
+extern void init_dtrace();
+extern void close_dtrace();
+
 typedef struct {
   vaddr_t pc;                      //指令pc
   uint32_t inst;                   //指令编码
@@ -130,7 +133,7 @@ void ftrace_call(vaddr_t pc,char *name,vaddr_t back,vaddr_t dnpc){
   // 输出调用信息
   printf("0x%x: ",pc);
   for(int i=0;i<ftrace_size;i++){
-    printf("  "); // 缩进
+    printf(" | "); // 缩进
   }
   printf("call [%s @ 0x%08x]\n",name,dnpc);
   // printf("call [0x%x]\n",back);
@@ -155,7 +158,7 @@ void ftrace_ret(vaddr_t pc,char *name){
   // 输出返回信息
   printf("0x%x: ",pc);
   for (int i = 0; i < ftrace_size; i++) {
-    printf("  "); // 缩进
+    printf(" | "); // 缩进
   }
   printf("ret  [%s]\n", name);
 }
@@ -249,7 +252,7 @@ static void exec_once(Decode *s, vaddr_t pc) {
   s->pc = pc;
   s->snpc = pc;
   isa_exec_once(s);
-
+#ifdef CONFIG_BRANCH_Predictor
   // 分支预测器逻辑
   uint32_t opcode = s->isa.inst & 0x7f;
   bool is_branch = (opcode == 0x63);  //条件分支 (beq,bne等)
@@ -303,7 +306,8 @@ static void exec_once(Decode *s, vaddr_t pc) {
     //        jump ? "jump" : "not jump", s->dnpc);
     // #endif
   }
-  
+#endif
+
 #ifdef CONFIG_FUNC_TRACE
   // uint32_t opcode = s->isa.inst & 0x7f;
   vaddr_t target=s->dnpc;
@@ -355,6 +359,7 @@ static void exec_once(Decode *s, vaddr_t pc) {
 static void execute(uint64_t n) {
   Decode s;
   IFDEF(CONFIG_MEMORY_TRACE,init_mtrace());
+  IFDEF(CONFIG_DEVICE_TRACE,init_dtrace());
   for (;n > 0; n --) {
     exec_once(&s, cpu.pc);
     g_nr_guest_inst ++;
@@ -364,6 +369,7 @@ static void execute(uint64_t n) {
   }
   if(nemu_state.state==NEMU_END || nemu_state.state==NEMU_ABORT){
     IFDEF(CONFIG_MEMORY_TRACE,close_mtrace());
+    IFDEF(CONFIG_DEVICE_TRACE,close_dtrace());
   }
   if(nemu_state.state==NEMU_ABORT){//程序出错时
     vaddr_t error_pc=cpu.pc;
@@ -379,11 +385,15 @@ static void statistic() {
   if (g_timer > 0) Log("simulation frequency = " NUMBERIC_FMT " inst/s", g_nr_guest_inst * 1000000 / g_timer);
   else Log("Finish running in less than 1 us and can not calculate the simulation frequency");
 
+#ifdef CONFIG_FUNC_TRACE
   puts("");
   Log("Function call statistics:");
   for (int i = 0; i < func_call_stats_size; i++) {
     Log("  %-20s: %" PRIu64 " calls", func_call_stats[i].name, func_call_stats[i].call_count);
   }
+#endif
+
+#ifdef CONFIG_BRANCH_Predictor
   //添加分支预测器统计
   puts("");
   Log("Branch Predictor Statistics:");
@@ -401,6 +411,7 @@ static void statistic() {
     double target_hit_rate = (double)btb_hits / (btb_hits+btb_misses)*100;
     Log("  Target hit rate: %.2f%%", target_hit_rate);
   }
+#endif
 }
 
 void assert_fail_msg() {

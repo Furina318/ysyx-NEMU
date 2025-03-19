@@ -17,6 +17,49 @@
 #include <memory/host.h>
 #include <memory/vaddr.h>
 #include <device/map.h>
+#include <string.h>
+#include <stdlib.h>
+
+static FILE *dtrace_file=NULL;
+#define DTRACE_LOG_FILE "dtrace.log"
+void init_dtrace(){
+  dtrace_file=fopen(DTRACE_LOG_FILE,"w");
+  if(dtrace_file==NULL){
+    printf("Fail to open dtrace log file\n");
+    return;
+  }
+}
+void close_dtrace(){
+  if(dtrace_file!=NULL){
+    fclose(dtrace_file);
+    dtrace_file=NULL;
+  }
+}
+#define dtrace_log_write(...) IFDEF(CONFIG_DEVICE_TRACE, \
+  do { \
+    if (dtrace_file != NULL) { \
+      fprintf(dtrace_file, __VA_ARGS__); \
+      fflush(dtrace_file); \
+    } \
+  } while (0) \
+)
+void print_dtrace_file(const char *device_name,const char *op) {
+  FILE *file = fopen(DTRACE_LOG_FILE, "r");
+  if (file == NULL) {
+      printf("Failed to open file: %s\n", DTRACE_LOG_FILE);
+      return;
+  }
+  char line[256];
+  while (fgets(line, sizeof(line), file)) {
+    if(device_name != NULL && strstr(line,device_name) == NULL) continue;
+    if(op != NULL){
+      if(strcmp(op, "read") == 0 && strstr(line, "read") == NULL) continue;
+      if(strcmp(op, "write") == 0 && strstr(line, "write") == NULL) continue;
+    }
+    printf("%s", line); // 逐行输出文件内容
+  }
+  fclose(file);
+}
 
 #define IO_SPACE_MAX (32 * 1024 * 1024)
 
@@ -58,6 +101,9 @@ word_t map_read(paddr_t addr, int len, IOMap *map) {
   paddr_t offset = addr - map->low;
   invoke_callback(map->callback, offset, len, false); // prepare data to read
   word_t ret = host_read(map->space + offset, len);
+#ifdef CONFIG_DEVICE_TRACE
+  dtrace_log_write("[dtrace] read %10s at " FMT_PADDR " %d\n",map->name,addr,len);
+#endif
   return ret;
 }
 
@@ -67,4 +113,7 @@ void map_write(paddr_t addr, int len, word_t data, IOMap *map) {
   paddr_t offset = addr - map->low;
   host_write(map->space + offset, len, data);
   invoke_callback(map->callback, offset, len, true);
+#ifdef CONFIG_DEVICE_TRACE
+  dtrace_log_write("[dtrace] wirte %10s at " FMT_PADDR " with " FMT_WORD " %d\n",map->name,addr,data,len);
+#endif
 }
